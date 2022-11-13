@@ -1,0 +1,112 @@
+#pragma kernel Init
+#pragma kernel Step
+#pragma kernel Plot
+
+RWTexture2D<float4> renderTexture;
+uint offset;
+uint DIM;
+RWStructuredBuffer<float> C,N;
+// RWStructuredBuffer<float> Ctmp,Ntmp;
+uint plotmode;
+float c0,dx,dt,beta,sigma0;
+float normalizeFactor;
+// Hash function from H. Schechter & R. Bridson, goo.gl/RXiKaH
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+[numthreads(8, 8, 1)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+    float x = (float(id.x)-float(DIM)/2.0)*dx;
+    float y = (float(id.y)-float(DIM)/2.0)*dx;
+    C[id.x + id.y*DIM] = c0;
+    N[id.x + id.y*DIM] = beta*exp(-(x*x + y*y)/((6.25*float(DIM))/1600.0));
+    float c = 0;
+    if(plotmode==0) c  =  C[id.x + id.y*DIM];
+    if(plotmode==1) c  =  N[id.x + id.y*DIM];
+    C[DIM*DIM+id.x + id.y*DIM] = C[id.x + id.y*DIM];
+    N[DIM*DIM+id.x + id.y*DIM] = N[id.x + id.y*DIM];
+    renderTexture[id.xy] = float4(c,c,c,1);
+    // float4 c = Random((id.x + id.y * DIM)*offset + offset);
+    // renderTexture[id.xy] = float4(c.x,c.y,c.z,1);
+}
+
+[numthreads(8, 8, 1)]
+void Step(uint3 id : SV_DispatchThreadID)
+{
+    float sigma = sigma0*Random((id.x + id.y * DIM)*offset + offset);
+
+    // float laplacianN = 
+    // (N[DIM*DIM+(id.x+1)%DIM + id.y*DIM] + N[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM] +
+    // N[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM] + N[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM]
+    // -4.0 * N[DIM*DIM+id.x + id.y*DIM])/(dx*dx);
+
+    // float laplacianC = 
+    // (C[DIM*DIM+(id.x+1)%DIM + id.y*DIM] + C[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM] +
+    // C[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM] + C[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM]
+    // -4.0 * C[DIM*DIM+id.x + id.y*DIM])/(dx*dx);
+
+    float laplacianN = 
+    (N[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + N[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    N[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + N[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    -4.0 * N[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+
+    float laplacianC = 
+    (C[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + C[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    C[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + C[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    -4.0 * C[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+
+    float delxN = 
+    (N[DIM*DIM+(id.x+1)%DIM + id.y*DIM]-N[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM])/(2.0*dx);
+    float delyN = 
+    (N[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM]-N[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM])/(2.0*dx);
+
+    float delxC = 
+    (C[DIM*DIM+(id.x+1)%DIM + id.y*DIM]-C[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM])/(2.0*dx);
+    float delyC = 
+    (C[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM]-C[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM])/(2.0*dx);
+
+    N[id.x + id.y*DIM] += (
+            sigma*(
+                N[DIM*DIM+id.x + id.y*DIM] * (delxN*delxC + delyN*delyC)
+                +C[DIM*DIM+id.x + id.y*DIM] * (delxN*delxN + delyN*delyN)
+                +laplacianN*N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+            )
+            +N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+        )*dt;
+    C[id.x + id.y*DIM] += (
+            laplacianC
+            -N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+        )*dt;
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    float c = 0;
+    if(plotmode==0) c  =  C[id.x + id.y*DIM];
+    if(plotmode==1) c  =  N[id.x + id.y*DIM];
+    C[DIM*DIM+id.x + id.y*DIM] = C[id.x + id.y*DIM];
+    N[DIM*DIM+id.x + id.y*DIM] = N[id.x + id.y*DIM];
+    if(normalizeFactor!=-1) c/=normalizeFactor;
+    renderTexture[id.xy] = float4(c,c,c,1);
+}
+
+[numthreads(1,1,1)]
+void GetMinMax (uint id : SV_DispatchThreadID)
+{
+    
+}

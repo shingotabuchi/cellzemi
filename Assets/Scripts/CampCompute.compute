@@ -1,0 +1,101 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Init
+#pragma kernel Step
+#pragma kernel Copy
+#pragma kernel MinMax
+#pragma kernel Plot
+
+struct point_data
+{
+    float C,E,time;
+    int state;
+};
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> renderTexture;
+// RWStructuredBuffer<float> C,E,time;
+// RWStructuredBuffer<int> state;
+// RWStructuredBuffer<float> CTmp,ETmp;
+RWStructuredBuffer<point_data> pointDatas;
+RWStructuredBuffer<point_data> pointDatasTmp;
+uint DIM;
+float initE,dt,D,gamma,a,dx,dy,Cmin,Cmax,tau,tauar,taurr;
+float maxC,minC;
+[numthreads(8,8,1)]
+void Init (uint3 id : SV_DispatchThreadID)
+{
+    pointDatas[id.x + id.y*DIM].C = 1;
+    pointDatas[id.x + id.y*DIM].time = 0;
+    pointDatas[id.x + id.y*DIM].state = 0;
+    pointDatas[id.x + id.y*DIM].E = initE;
+    pointDatasTmp[id.x + id.y*DIM] = pointDatas[id.x + id.y*DIM];
+    renderTexture[id.xy] = float4(pointDatas[id.x + id.y*DIM].C, pointDatas[id.x + id.y*DIM].C,pointDatas[id.x + id.y*DIM].C,1);
+}
+
+[numthreads(8,8,1)]
+void Step (uint3 id : SV_DispatchThreadID)
+{
+    float laplacian = 
+    (pointDatasTmp[(id.x+1)%DIM + id.y*DIM].C - 2*pointDatasTmp[id.x + id.y*DIM].C + pointDatasTmp[(id.x-1 + DIM)%DIM + id.y*DIM].C)/(dx*dx)+
+    (pointDatasTmp[id.x + ((id.y+1)%DIM)*DIM].C - 2*pointDatasTmp[id.x + id.y*DIM].C + pointDatasTmp[id.x + ((id.y-1 + DIM)%DIM)*DIM].C)/(dy*dy);
+    pointDatas[id.x + id.y*DIM].C += (D*laplacian - gamma*pointDatasTmp[id.x + id.y*DIM].C)*dt;
+
+    if(pointDatas[id.x + id.y*DIM].state!=0)
+    {
+        pointDatas[id.x + id.y*DIM].time += dt;
+        float A = (taurr/(taurr-tauar))*(Cmax-Cmin);
+        float Ct = Cmax - A*((pointDatas[id.x + id.y*DIM].time - tauar)/pointDatas[id.x + id.y*DIM].time);
+        if(pointDatas[id.x + id.y*DIM].state==1)
+        {
+            pointDatas[id.x + id.y*DIM].C += a*dt;
+            if(pointDatas[id.x + id.y*DIM].time>=tau)
+            {
+                pointDatas[id.x + id.y*DIM].state = 2;
+            }
+        }
+        else if(pointDatas[id.x + id.y*DIM].state==2 && pointDatas[id.x + id.y*DIM].time>tauar)
+        {
+            if(pointDatas[id.x + id.y*DIM].time<taurr && pointDatas[id.x + id.y*DIM].C > Ct)
+            {
+                pointDatas[id.x + id.y*DIM].state = 1;
+            }
+            else if(pointDatas[id.x + id.y*DIM].time>=taurr)
+            {
+                pointDatas[id.x + id.y*DIM].state = 0;
+            }
+        }
+    }
+    else if(pointDatas[id.x + id.y*DIM].C>=Cmin)
+    {
+        pointDatas[id.x + id.y*DIM].state = 1;
+        pointDatas[id.x + id.y*DIM].time = 0;
+    }
+}
+
+[numthreads(8,8,1)]
+void Copy (uint3 id : SV_DispatchThreadID)
+{
+    pointDatasTmp[id.x + id.y*DIM] = pointDatas[id.x + id.y*DIM];
+}
+
+[numthreads(1,1,1)]
+void MinMax (uint3 id : SV_DispatchThreadID)
+{
+    minC = 999;
+    maxC = -999;
+    for(uint i = 0; i< DIM*DIM; i++)
+    {
+        minC = min(minC,pointDatas[i].C);
+        maxC = max(maxC,pointDatas[i].C);
+    }
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    // float c = (pointDatas[id.x + id.y*DIM].C-minC)/(maxC-minC);
+    float c = ((float)pointDatas[id.x + id.y*DIM].state)/2.0;
+    renderTexture[id.xy] = float4(c,c,c,1);
+}
+

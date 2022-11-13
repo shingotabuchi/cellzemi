@@ -1,0 +1,120 @@
+#pragma kernel Init
+#pragma kernel Step
+#pragma kernel Plot
+
+RWTexture2D<float4> renderTexture;
+int DIM;
+int N,sqrtN;
+int offset;
+int offset1;
+int A;
+float T,lambda;
+int plotMode;
+RWStructuredBuffer<int> sigma,area;
+
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+[numthreads(8, 8, 1)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+    sigma[id.x + id.y*DIM] = Hash((id.x + id.y * DIM)*offset + offset)%N;
+    // sigma[id.x + id.y*DIM] = (id.x/(DIM/sqrtN)) + (id.y/(DIM/sqrtN))*sqrtN;
+    area[sigma[id.x + id.y*DIM]]++;
+}
+
+[numthreads(8, 8, 1)]
+void Step(uint3 id : SV_DispatchThreadID)
+{
+    // int s = Hash((id.x + id.y * DIM)*offset + offset)%N;
+    int nearby[] = {
+        sigma[(id.x+1)%DIM + id.y*DIM],
+        sigma[(id.x-1+DIM)%DIM + id.y*DIM],
+        sigma[id.x + ((id.y+1)%DIM)*DIM],
+        sigma[id.x + ((id.y-1+DIM)%DIM)*DIM]
+    };
+    int s = nearby[Hash((id.x + id.y * DIM)*offset + offset)%4];
+    float dH = 
+    float(
+         uint(s!=sigma[(id.x+1)%DIM + id.y*DIM])
+        +uint(s!=sigma[(id.x-1+DIM)%DIM + id.y*DIM])
+        +uint(s!=sigma[id.x + ((id.y+1)%DIM)*DIM])
+        +uint(s!=sigma[id.x + ((id.y-1+DIM)%DIM)*DIM])
+    )
+    -
+    float(
+         uint(sigma[id.x + id.y*DIM]!=sigma[ (id.x+1)%DIM + id.y*DIM])
+        +uint(sigma[id.x + id.y*DIM]!=sigma[ (id.x-1+DIM)%DIM + id.y*DIM])
+        +uint(sigma[id.x + id.y*DIM]!=sigma[ id.x + ((id.y+1)%DIM)*DIM])
+        +uint(sigma[id.x + id.y*DIM]!=sigma[ id.x + ((id.y-1+DIM)%DIM)*DIM])
+    );
+
+    // float dH = 0;
+    if(s!=sigma[id.x + id.y*DIM])
+    {
+        dH += lambda*float(
+            (area[s] + 1 - A)*(area[s] + 1 - A)
+            +(area[sigma[id.x + id.y*DIM]] - 1 - A)*(area[sigma[id.x + id.y*DIM]] - 1 - A)
+            -(area[s] - A)*(area[s] - A)
+            -(area[sigma[id.x + id.y*DIM]] - A)*(area[sigma[id.x + id.y*DIM]] - A)
+        );
+    }
+
+    float r = Random((id.x + id.y * DIM)*offset1 + offset1);
+
+    if(T!=0)
+    {
+        if(exp(-dH/T)>=r)
+        {
+            area[s]++;
+            area[sigma[id.x + id.y*DIM]]--;
+            sigma[id.x + id.y*DIM] = s;
+        }
+    }
+    else
+    {
+        if(dH<0){
+            area[s]++;
+            area[sigma[id.x + id.y*DIM]]--;
+            sigma[id.x + id.y*DIM] = s;
+        }
+        if(dH==0 && r <= 0.5){
+            area[s]++;
+            area[sigma[id.x + id.y*DIM]]--;
+            sigma[id.x + id.y*DIM] = s;
+        }
+    }
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    float c = 1;
+    if(plotMode==0)
+    {
+        c = (4.0-float(
+            int(sigma[id.x + id.y*DIM]!=sigma[ (id.x+1)%DIM + id.y*DIM])
+            +int(sigma[id.x + id.y*DIM]!=sigma[ (id.x-1+DIM)%DIM + id.y*DIM])
+            +int(sigma[id.x + id.y*DIM]!=sigma[ id.x + ((id.y+1)%DIM)*DIM])
+            +int(sigma[id.x + id.y*DIM]!=sigma[ id.x + ((id.y-1+DIM)%DIM)*DIM])
+        ))/4.0;
+    }
+    else
+    {
+        c = float(sigma[id.x + id.y*DIM])/float(N-1);
+    }
+    renderTexture[id.xy] = float4(c,c,c,1);
+}
