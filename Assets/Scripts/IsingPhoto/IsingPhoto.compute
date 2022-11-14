@@ -1,0 +1,149 @@
+#pragma kernel Init
+#pragma kernel Step
+#pragma kernel Plot
+
+RWTexture2D<float4> renderTexture;
+int DIM_X, DIM_Y;
+int cellCount;
+int offset;
+int offset1;
+float T;
+int plotMode;
+RWStructuredBuffer<int> sigma;
+RWStructuredBuffer<float4> cellColors;
+
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+[numthreads(32, 32, 1)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+    sigma[id.x + id.y*DIM_X] = Hash((id.x + id.y * DIM_X)*offset + offset)%cellCount;
+}
+
+[numthreads(32, 32, 1)]
+void Step(uint3 id : SV_DispatchThreadID)
+{
+
+
+    // int s = Hash((id.x + id.y * DIM_X)*offset + offset)%cellCount;
+    int nearby[] = {
+        sigma[(id.x+1)%DIM_X + id.y*DIM_X],
+        sigma[(id.x-1+DIM_X)%DIM_X + id.y*DIM_X],
+        sigma[id.x + ((id.y+1)%DIM_Y)*DIM_X],
+        sigma[id.x + ((id.y-1+DIM_Y)%DIM_Y)*DIM_X]
+    };
+    int s = nearby[Hash((id.x + id.y * DIM_X)*offset + offset)%4];
+    float dH = 
+    float(
+         uint(s!=sigma[(id.x+1)%DIM_X + id.y*DIM_X])
+        +uint(s!=sigma[(id.x-1+DIM_X)%DIM_X + id.y*DIM_X])
+        +uint(s!=sigma[id.x + ((id.y+1)%DIM_Y)*DIM_X])
+        +uint(s!=sigma[id.x + ((id.y-1+DIM_Y)%DIM_Y)*DIM_X])
+    )
+    -
+    float(
+         uint(sigma[id.x + id.y*DIM_X]!=sigma[ (id.x+1)%DIM_X + id.y*DIM_X])
+        +uint(sigma[id.x + id.y*DIM_X]!=sigma[ (id.x-1+DIM_X)%DIM_X + id.y*DIM_X])
+        +uint(sigma[id.x + id.y*DIM_X]!=sigma[ id.x + ((id.y+1)%DIM_Y)*DIM_X])
+        +uint(sigma[id.x + id.y*DIM_X]!=sigma[ id.x + ((id.y-1+DIM_Y)%DIM_Y)*DIM_X])
+    );
+
+    float r = Random((id.x + id.y * DIM_X)*offset1 + offset1);
+
+    if(T!=0)
+    {
+        if(exp(-dH/T)>=r)
+        {
+            sigma[id.x + id.y*DIM_X] = s;
+        }
+    }
+    else
+    {
+        if(dH<0){
+            sigma[id.x + id.y*DIM_X] = s;
+        }
+        if(dH==0 && r <= 0.5){
+            sigma[id.x + id.y*DIM_X] = s;
+        }
+    }
+}
+
+[numthreads(32,32,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    renderTexture[id.xy] = cellColors[sigma[id.x + id.y*DIM_X]];
+}
+
+// [numthreads(8, 8, 1)]
+// void Init(uint3 id : SV_DispatchThreadID)
+// {
+//     sigma[id.x + id.y*DIM_X] = Hash((id.x + id.y * DIM_X)*offset + offset)%cellCount;
+// }
+
+// [numthreads(8, 8, 1)]
+// void Step(uint3 id : SV_DispatchThreadID)
+// {
+
+    
+//     // int s = Hash((id.x + id.y * DIM_X)*offset + offset)%cellCount;
+//     int nearby[] = {
+//         sigma[(id.x+1)%DIM_X + id.y*DIM_X],
+//         sigma[(id.x-1+DIM_X)%DIM_X + id.y*DIM_X],
+//         sigma[id.x + ((id.y+1)%DIM_Y)*DIM_X],
+//         sigma[id.x + ((id.y-1+DIM_Y)%DIM_Y)*DIM_X]
+//     };
+//     int s = nearby[Hash((id.x + id.y * DIM_X)*offset + offset)%4];
+//     float dH = 
+//     float(
+//          uint(s!=sigma[(id.x+1)%DIM_X + id.y*DIM_X])
+//         +uint(s!=sigma[(id.x-1+DIM_X)%DIM_X + id.y*DIM_X])
+//         +uint(s!=sigma[id.x + ((id.y+1)%DIM_Y)*DIM_X])
+//         +uint(s!=sigma[id.x + ((id.y-1+DIM_Y)%DIM_Y)*DIM_X])
+//     )
+//     -
+//     float(
+//          uint(sigma[id.x + id.y*DIM_X]!=sigma[ (id.x+1)%DIM_X + id.y*DIM_X])
+//         +uint(sigma[id.x + id.y*DIM_X]!=sigma[ (id.x-1+DIM_X)%DIM_X + id.y*DIM_X])
+//         +uint(sigma[id.x + id.y*DIM_X]!=sigma[ id.x + ((id.y+1)%DIM_Y)*DIM_X])
+//         +uint(sigma[id.x + id.y*DIM_X]!=sigma[ id.x + ((id.y-1+DIM_Y)%DIM_Y)*DIM_X])
+//     );
+
+//     float r = Random((id.x + id.y * DIM_X)*offset1 + offset1);
+
+//     if(T!=0)
+//     {
+//         if(exp(-dH/T)>=r)
+//         {
+//             sigma[id.x + id.y*DIM_X] = s;
+//         }
+//     }
+//     else
+//     {
+//         if(dH<0){
+//             sigma[id.x + id.y*DIM_X] = s;
+//         }
+//         if(dH==0 && r <= 0.5){
+//             sigma[id.x + id.y*DIM_X] = s;
+//         }
+//     }
+// }
+
+// [numthreads(8,8,1)]
+// void Plot (uint3 id : SV_DispatchThreadID)
+// {
+//     renderTexture[id.xy] = cellColors[sigma[id.x + id.y*DIM_X]];
+// }
