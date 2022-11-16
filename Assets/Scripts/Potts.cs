@@ -11,6 +11,7 @@ public class Potts : MonoBehaviour
         CellType,
         DLM,
     }
+    public bool isRandom;
     public PlotMode plotMode;
     PlotMode setPlotMode;
     public ComputeShader compute;
@@ -137,7 +138,16 @@ public class Potts : MonoBehaviour
         }
         for (int kk = 0; kk < loopCount; kk++)
         {
-            // int i = Random.Range(0,DIM);
+            if(isRandom) RandomStep();
+            else Step();
+        }
+        plotTexture.SetPixels(plotPixels);
+        plotTexture.Apply();
+    }
+
+    void Step()
+    {
+        // int i = Random.Range(0,DIM);
             // int j = Random.Range(0,DIM);
             for (int i = 0; i < DIM; i++)
             {
@@ -297,11 +307,166 @@ public class Potts : MonoBehaviour
             }
             plotPixels[i + j*DIM] = new Color(c,c,c,1);
             }}
-        }
-        plotTexture.SetPixels(plotPixels);
-        plotTexture.Apply();
     }
 
+    void RandomStep()
+    {
+        int i = Random.Range(0,DIM);
+            int j = Random.Range(0,DIM);
+            int[] nearby = new int[4]{
+                getSigmaBuffer[(i+1)%DIM + j*DIM],
+                getSigmaBuffer[(i-1+DIM)%DIM + j*DIM],
+                getSigmaBuffer[i + ((j+1)%DIM)*DIM],
+                getSigmaBuffer[i + ((j-1+DIM)%DIM)*DIM]
+            };
+            
+            int[] nearbydlm = new int[4]{
+                dlmBuffer[nearby[0]],
+                dlmBuffer[nearby[1]],
+                dlmBuffer[nearby[2]],
+                dlmBuffer[nearby[3]]
+            };
+
+            if(i+1>=DIM)
+            {
+                nearby[0] = N-1;
+                nearbydlm[0] = 2;
+            }
+            if(i-1<0)
+            {
+                nearby[1] = N-1;
+                nearbydlm[1] = 2;
+            }
+            if(j+1>=DIM)
+            {
+                nearby[2] = N-1;
+                nearbydlm[2] = 2;
+            }
+            if(j-1<0)
+            {
+                nearby[3] = N-1;
+                nearbydlm[3] = 2;
+            }
+
+            int index = Random.Range(0,4);
+            int s = nearby[index];
+            int dlm = nearbydlm[index];
+
+            float[] nearbyJbefore = new float[4]{0,0,0,0};
+            float[] nearbyJafter = new float[4]{0,0,0,0};
+            
+            for (int l = 0; l < 4; l++)
+            {
+                if(dlmBuffer[getSigmaBuffer[i + j*DIM]]==nearbydlm[l])
+                {
+                    if(nearbydlm[l]==0) nearbyJbefore[l] = Jdd_dl_ll_m[0];
+                    if(nearbydlm[l]==1) nearbyJbefore[l] = Jdd_dl_ll_m[2];
+                }
+                else
+                {
+                    if(nearbydlm[l]==0&&dlmBuffer[getSigmaBuffer[i + j*DIM]]==1 || nearbydlm[l]==1&&dlmBuffer[getSigmaBuffer[i + j*DIM]]==0) 
+                    nearbyJbefore[l] = Jdd_dl_ll_m[1];
+                    else nearbyJbefore[l] = Jdd_dl_ll_m[3];
+                }
+
+                if(dlm==nearbydlm[l])
+                {
+                    if(nearbydlm[l]==0) nearbyJafter[l] = Jdd_dl_ll_m[0];
+                    if(nearbydlm[l]==1) nearbyJafter[l] = Jdd_dl_ll_m[2];
+                }
+                else
+                {
+                    if(nearbydlm[l]==0&&dlm==1 || nearbydlm[l]==1&&dlm==0) 
+                    nearbyJafter[l] = Jdd_dl_ll_m[1];
+                    else nearbyJafter[l] = Jdd_dl_ll_m[3];
+                }
+            }
+            
+            float dH = 0;
+            if(s!=nearby[0]) dH += nearbyJafter[0];
+            if(s!=nearby[1]) dH += nearbyJafter[1];
+            if(s!=nearby[2]) dH += nearbyJafter[2];
+            if(s!=nearby[3]) dH += nearbyJafter[3];
+            if(getSigmaBuffer[i + j*DIM]!=nearby[0]) dH -= nearbyJbefore[0];
+            if(getSigmaBuffer[i + j*DIM]!=nearby[1]) dH -= nearbyJbefore[1];
+            if(getSigmaBuffer[i + j*DIM]!=nearby[2]) dH -= nearbyJbefore[2];
+            if(getSigmaBuffer[i + j*DIM]!=nearby[3]) dH -= nearbyJbefore[3];
+
+            // if(s!=getSigmaBuffer[(i+1)%DIM + j*DIM]) dH += 1f;
+            // if(s!=getSigmaBuffer[(i-1+DIM)%DIM + j*DIM]) dH += 1f;
+            // if(s!=getSigmaBuffer[i + ((j+1)%DIM)*DIM]) dH += 1f;
+            // if(s!=getSigmaBuffer[i + ((j-1+DIM)%DIM)*DIM]) dH += 1f;
+            // if(getSigmaBuffer[i + j*DIM]!=getSigmaBuffer[ (i+1)%DIM + j*DIM]) dH -= 1f;
+            // if(getSigmaBuffer[i + j*DIM]!=getSigmaBuffer[ (i-1+DIM)%DIM + j*DIM]) dH -= 1f;
+            // if(getSigmaBuffer[i + j*DIM]!=getSigmaBuffer[ i + ((j+1)%DIM)*DIM]) dH -= 1f;
+            // if(getSigmaBuffer[i + j*DIM]!=getSigmaBuffer[ i + ((j-1+DIM)%DIM)*DIM]) dH -= 1f;
+            
+
+            // float dH = 0;
+            if(s!=getSigmaBuffer[i + j*DIM])
+            {
+                if(s!=N-1)
+                {
+                    dH += lambda*(float)(
+                        (getAreaBuffer[s] + 1 - A)*(getAreaBuffer[s] + 1 - A)
+                        -(getAreaBuffer[s] - A)*(getAreaBuffer[s] - A)
+                    );
+                }
+                if(getSigmaBuffer[i + j*DIM]!=N-1)
+                {
+                    dH += lambda*(float)(
+                        +(getAreaBuffer[getSigmaBuffer[i + j*DIM]] - 1 - A)*(getAreaBuffer[getSigmaBuffer[i + j*DIM]] - 1 - A)
+                        -(getAreaBuffer[getSigmaBuffer[i + j*DIM]] - A)*(getAreaBuffer[getSigmaBuffer[i + j*DIM]] - A)
+                    );
+                }
+                
+                
+            }
+
+            float r = Random.Range(0f,1f);
+
+            if(T!=0)
+            {
+                if(Mathf.Exp(-dH/T)>=r)
+                {
+                    getAreaBuffer[s]++;
+                    getAreaBuffer[getSigmaBuffer[i + j*DIM]]--;
+                    getSigmaBuffer[i + j*DIM] = s;
+                }
+            }
+            else
+            {
+                if(dH<0){
+                    getAreaBuffer[s]++;
+                    getAreaBuffer[getSigmaBuffer[i + j*DIM]]--;
+                    getSigmaBuffer[i + j*DIM] = s;
+                }
+                if(dH==0 && r <= 0.5){
+                    getAreaBuffer[s]++;
+                    getAreaBuffer[getSigmaBuffer[i + j*DIM]]--;
+                    getSigmaBuffer[i + j*DIM] = s;
+                }
+            }
+            float c = 1;
+            if(plotMode==PlotMode.Energy)
+            {
+                c = 4f;
+                if(getSigmaBuffer[i + j*DIM]!=nearby[0]) c -= 1f;
+                if(getSigmaBuffer[i + j*DIM]!=nearby[1]) c -= 1f;
+                if(getSigmaBuffer[i + j*DIM]!=nearby[2]) c -= 1f;
+                if(getSigmaBuffer[i + j*DIM]!=nearby[3]) c -= 1f;
+                c/=4f;
+            }
+            else if(plotMode==PlotMode.CellType)
+            {
+                c = (float)(getSigmaBuffer[i + j*DIM])/(float)(N-1);
+            }
+            else
+            {
+                c = (float)(dlmBuffer[getSigmaBuffer[i + j*DIM]])/2f;
+            }
+            plotPixels[i + j*DIM] = new Color(c,c,c,1);
+    }
     // void Update()
     // {
     //     if(setA != A)
