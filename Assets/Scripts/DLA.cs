@@ -23,11 +23,14 @@ public class DLA : MonoBehaviour
     ComputeBuffer C,N;
     float[] getC,getN;
     public float normalizeFactor = -1;
+    public bool isRadial = false;
+    public float radiusFactor;
+    public float gaussianSharpness = 6.25f;
     // ComputeBuffer Ctmp,Ntmp;
     Texture2D plotTexture;
     Color[] plotPixels;
     // float[] C,N;
-    int initkernel,stepkernel,plotkernel;
+    int initkernel,stepkernel,plotkernel,initRadialKernel;
     void Start()
     {
         plotTexture = new Texture2D(DIM,DIM);
@@ -43,6 +46,7 @@ public class DLA : MonoBehaviour
         getN = new float[DIM*DIM*2];
         // Ctmp = new ComputeBuffer(DIM*DIM,sizeof(float));
         // Ntmp = new ComputeBuffer(DIM*DIM,sizeof(float));
+        initRadialKernel = compute.FindKernel("InitRadial");
         initkernel = compute.FindKernel("Init");
         stepkernel = compute.FindKernel("Step");
         plotkernel = compute.FindKernel("Plot");
@@ -54,10 +58,14 @@ public class DLA : MonoBehaviour
         compute.SetFloat("beta",beta);
         compute.SetFloat("sigma0",sigma0);
         compute.SetFloat("normalizeFactor",normalizeFactor);
+        compute.SetFloat("radiusFactor",radiusFactor);
+        compute.SetFloat("gaussianSharpness",gaussianSharpness);
 
         // compute.SetInt("offset",(int)Random.Range(0,int.MaxValue));
         compute.SetBuffer(initkernel,"C",C);
         compute.SetBuffer(initkernel,"N",N);
+        compute.SetBuffer(initRadialKernel,"C",C);
+        compute.SetBuffer(initRadialKernel,"N",N);
         // compute.SetBuffer(initkernel,"Ctmp",Ctmp);
         // compute.SetBuffer(initkernel,"Ntmp",Ntmp);
         compute.SetBuffer(stepkernel,"C",C);
@@ -69,9 +77,11 @@ public class DLA : MonoBehaviour
         // compute.SetBuffer(plotkernel,"Ctmp",Ctmp);
         // compute.SetBuffer(plotkernel,"Ntmp",Ntmp);
         compute.SetTexture(initkernel,"renderTexture",renderTexture);
+        compute.SetTexture(initRadialKernel,"renderTexture",renderTexture);
         compute.SetTexture(plotkernel,"renderTexture",renderTexture);
 
-        compute.Dispatch(initkernel,(DIM+7)/8,(DIM+7)/8,1);
+        if(!isRadial) compute.Dispatch(initkernel,(DIM+7)/8,(DIM+7)/8,1);
+        else compute.Dispatch(initRadialKernel,(DIM+7)/8,(DIM+7)/8,1);
 
         RenderTexture.active = renderTexture;
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);

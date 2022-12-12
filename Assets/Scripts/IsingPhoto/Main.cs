@@ -1,3 +1,4 @@
+using System.IO;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -24,7 +25,7 @@ public class Main : MonoBehaviour
     ComputeBuffer sigma,cellColors;
     int[] getSigmaBuffer;
     Color[] getCellColors;
-
+    int frame = 0;
     // Start is called before the first frame update
     void Start()
     {
@@ -132,5 +133,10 @@ public class Main : MonoBehaviour
         RenderTexture.active = renderTexture;
         plotTexture.ReadPixels(new Rect(0, 0, renderTexture.width, renderTexture.height), 0, 0);
         plotTexture.Apply();
+
+        byte[] bytes = plotTexture.EncodeToPNG();
+        var dirPath = "D:/isingphotos/";
+        File.WriteAllBytes(dirPath + frame.ToString() + ".png", bytes);
+        frame++;
     }
 }

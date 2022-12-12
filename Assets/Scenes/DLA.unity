@@ -154,7 +154,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   compute: {fileID: 7200000, guid: 27fd5ac6c633b1d40a5964d485a7ad64, type: 3}
   plotImage: {fileID: 1282963150}
-  DIM: 1600
+  DIM: 400
   plotMode: 1
   valueMax: 0
   valueMin: 0
