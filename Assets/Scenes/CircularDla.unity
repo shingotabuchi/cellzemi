@@ -306,21 +306,24 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   compute: {fileID: 7200000, guid: 27fd5ac6c633b1d40a5964d485a7ad64, type: 3}
   plotImage: {fileID: 1357080587}
-  DIM: 400
+  DIM: 1600
   plotMode: 1
   valueMax: 0
   valueMin: 0
   dx: 0.4205
   dt: 0.1414
   c0: 0.7
-  beta: 0.7
-  sigma0: 0.6
+  beta: 1
+  sigma0: 4
   loopCount: 300
   normalize: 0
   normalizeFactor: -1
   isRadial: 1
   radiusFactor: 0.2
   gaussianSharpness: 1
+  evapRate: 0.0000004
+  evap: 0
+  radial: 0
 --- !u!4 &1320503030
 Transform:
   m_ObjectHideFlags: 0

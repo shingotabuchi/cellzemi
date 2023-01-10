@@ -26,11 +26,15 @@ public class DLA : MonoBehaviour
     public bool isRadial = false;
     public float radiusFactor;
     public float gaussianSharpness = 6.25f;
+    public float evapRate;
+    public bool evap = false;
+    public bool radial = false;
     // ComputeBuffer Ctmp,Ntmp;
     Texture2D plotTexture;
     Color[] plotPixels;
     // float[] C,N;
-    int initkernel,stepkernel,plotkernel,initRadialKernel;
+    int initkernel,stepkernel,plotkernel,initRadialKernel,stepEvapKernel;
+    int stepRadialKernel;
     void Start()
     {
         plotTexture = new Texture2D(DIM,DIM);
@@ -49,6 +53,8 @@ public class DLA : MonoBehaviour
         initRadialKernel = compute.FindKernel("InitRadial");
         initkernel = compute.FindKernel("Init");
         stepkernel = compute.FindKernel("Step");
+        stepEvapKernel = compute.FindKernel("StepEvap");
+        stepRadialKernel = compute.FindKernel("StepRadial");
         plotkernel = compute.FindKernel("Plot");
         compute.SetInt("plotmode",(int)plotMode);
         compute.SetInt("DIM",DIM);
@@ -70,6 +76,10 @@ public class DLA : MonoBehaviour
         // compute.SetBuffer(initkernel,"Ntmp",Ntmp);
         compute.SetBuffer(stepkernel,"C",C);
         compute.SetBuffer(stepkernel,"N",N);
+        compute.SetBuffer(stepEvapKernel,"C",C);
+        compute.SetBuffer(stepEvapKernel,"N",N);
+        compute.SetBuffer(stepRadialKernel,"C",C);
+        compute.SetBuffer(stepRadialKernel,"N",N);
         compute.SetBuffer(plotkernel,"C",C);
         compute.SetBuffer(plotkernel,"N",N);
         // compute.SetBuffer(stepkernel,"Ctmp",Ctmp);
@@ -112,7 +122,21 @@ public class DLA : MonoBehaviour
         for (int i = 0; i < loopCount; i++)
         {
             compute.SetInt("offset",(int)Random.Range(0,int.MaxValue));
-            compute.Dispatch(stepkernel,(DIM+7)/8,(DIM+7)/8,1);
+            if(!evap) compute.Dispatch(stepkernel,(DIM+7)/8,(DIM+7)/8,1);
+            else if(!radial)
+            {
+                if(radiusFactor > 0)
+                {
+                    radiusFactor -= evapRate/(radiusFactor*radiusFactor);
+                }
+                else radiusFactor = 0;
+                compute.SetFloat("radiusFactor",radiusFactor);
+                compute.Dispatch(stepEvapKernel,(DIM+7)/8,(DIM+7)/8,1);
+            }
+            else
+            {
+                compute.Dispatch(stepRadialKernel,(DIM+7)/8,(DIM+7)/8,1);
+            }
             compute.Dispatch(plotkernel,(DIM+7)/8,(DIM+7)/8,1);
         }
         RenderTexture.active = renderTexture;

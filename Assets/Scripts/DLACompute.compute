@@ -1,6 +1,8 @@
 #pragma kernel Init
 #pragma kernel InitRadial
 #pragma kernel Step
+#pragma kernel StepEvap
+#pragma kernel StepRadial
 #pragma kernel Plot
 
 RWTexture2D<float4> renderTexture;
@@ -115,6 +117,148 @@ void Step(uint3 id : SV_DispatchThreadID)
             laplacianC
             -N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
         )*dt;
+}
+
+[numthreads(8, 8, 1)]
+void StepEvap(uint3 id : SV_DispatchThreadID)
+{
+    float sigma = sigma0*Random((id.x + id.y * DIM)*offset + offset);
+    float radius = float(DIM) * radiusFactor;
+    // float laplacianN = 
+    // (N[DIM*DIM+(id.x+1)%DIM + id.y*DIM] + N[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM] +
+    // N[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM] + N[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM]
+    // -4.0 * N[DIM*DIM+id.x + id.y*DIM])/(dx*dx);
+
+    // float laplacianC = 
+    // (C[DIM*DIM+(id.x+1)%DIM + id.y*DIM] + C[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM] +
+    // C[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM] + C[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM]
+    // -4.0 * C[DIM*DIM+id.x + id.y*DIM])/(dx*dx);
+
+    float laplacianN = 
+    (N[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + N[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    N[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + N[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    -4.0 * N[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+
+    float laplacianC = 
+    (C[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + C[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    C[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + C[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    -4.0 * C[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+
+    float delxN = 
+    (N[DIM*DIM+(id.x+1)%DIM + id.y*DIM]-N[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM])/(2.0*dx);
+    float delyN = 
+    (N[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM]-N[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM])/(2.0*dx);
+
+    float delxC = 
+    (C[DIM*DIM+(id.x+1)%DIM + id.y*DIM]-C[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM])/(2.0*dx);
+    float delyC = 
+    (C[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM]-C[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM])/(2.0*dx);
+
+    N[id.x + id.y*DIM] += (
+            sigma*(
+                N[DIM*DIM+id.x + id.y*DIM] * (delxN*delxC + delyN*delyC)
+                +C[DIM*DIM+id.x + id.y*DIM] * (delxN*delxN + delyN*delyN)
+                +laplacianN*N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+            )
+            +N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+        )*dt;
+    C[id.x + id.y*DIM] += (
+            laplacianC
+            -N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+        )*dt;
+    float x = (float(id.x)-float(DIM)/2.0)*dx;
+    float y = (float(id.y)-float(DIM)/2.0)*dx;
+    if(x*x + y*y > radius * radius) C[id.x + id.y*DIM] = 0;
+}
+
+[numthreads(8, 8, 1)]
+void StepRadial(uint3 id : SV_DispatchThreadID)
+{
+    float sigma = sigma0*Random((id.x + id.y * DIM)*offset + offset);
+    // float radius = float(DIM) * radiusFactor;
+
+    // float delxdelxN = 
+    // (N[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + N[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM]-2.0*N[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+    
+    // float delydelyN = 
+    // (N[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + N[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]-2.0*N[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+    
+    // float laplacianN = delxdelxN + delydelyN;
+
+    // float laplacianC = 
+    // (C[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + C[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    // C[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + C[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    // -4.0 * C[DIM*DIM+id.x + id.y*DIM])/(4.0*dx*dx);
+
+    // float delxN = 
+    // (N[DIM*DIM+(id.x+1)%DIM + id.y*DIM]-N[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM])/(2.0*dx);
+    // float delyN = 
+    // (N[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM]-N[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM])/(2.0*dx);
+
+    float x = (float(id.x)-float(DIM)/2.0)*dx;
+    float y = (float(id.y)-float(DIM)/2.0)*dx;
+
+    float r = sqrt(x*x + y*y);
+    // float cs = x/r;
+    // float delxcs = 1/r - x*x/(r*r*r);
+    // float delycs = -x*y/(r*r*r);
+    // float sn = y/r;
+    // float delxsn = delycs;
+    // float delysn = 1/r - y*y/(r*r*r);
+    // float delrN = cs * delxN + sn * delyN;
+    
+    // float delxdelyN = 
+    // (N[DIM*DIM+(id.x+1)%DIM + ((id.y+1)%DIM)*DIM]    - N[DIM*DIM+(id.x-1+DIM)%DIM + ((id.y+1)%DIM)*DIM]
+    // -N[DIM*DIM+(id.x+1)%DIM + ((id.y-1+DIM)%DIM)*DIM]+ N[DIM*DIM+(id.x-1+DIM)%DIM + ((id.y-1+DIM)%DIM)*DIM])/(4.0*dx*dx);
+
+    // float delxdelrN = 
+    // delxcs * delxN + cs * delxdelxN 
+    // + delxsn * delyN + sn * delxdelyN;
+
+    // float delydelrN = 
+    // delycs * delxN + cs * delxdelyN 
+    // + delysn * delyN + sn * delydelyN;
+
+    // float delrdelrN = cs * delxdelrN + sn * delydelrN;
+    
+    float tworoottwo = 2.0 * sqrt(2.0);
+    float delrN =
+    (N[DIM*DIM+(id.x+1)%DIM + ((id.y+1)%DIM)*DIM]-N[DIM*DIM+(id.x-1+DIM)%DIM + ((id.y-1+DIM)%DIM)*DIM])/(tworoottwo*dx);
+
+    float delrdelrN =
+    (N[DIM*DIM+(id.x+2)%DIM + ((id.y+2)%DIM)*DIM]+N[DIM*DIM+(id.x-2+DIM)%DIM + ((id.y-2+DIM)%DIM)*DIM]
+    -2.0*N[DIM*DIM+id.x + id.y*DIM])/(8.0*dx*dx);
+
+    float laplacianN = delrdelrN + 2.0*delrN/r;
+
+    float delrC =
+    (C[DIM*DIM+(id.x+1)%DIM + ((id.y+1)%DIM)*DIM]-C[DIM*DIM+(id.x-1+DIM)%DIM + ((id.y-1+DIM)%DIM)*DIM])/(tworoottwo*dx);
+
+    float delrdelrC =
+    (C[DIM*DIM+(id.x+2)%DIM + ((id.y+2)%DIM)*DIM]+C[DIM*DIM+(id.x-2+DIM)%DIM + ((id.y-2+DIM)%DIM)*DIM]
+    -2.0*C[DIM*DIM+id.x + id.y*DIM])/(8.0*dx*dx);
+
+    float laplacianC = delrdelrC + 2.0*delrC/r;
+ 
+    // float delxC = 
+    // (C[DIM*DIM+(id.x+1)%DIM + id.y*DIM]-C[DIM*DIM+(id.x-1+DIM)%DIM + id.y*DIM])/(2.0*dx);
+    // float delyC = 
+    // (C[DIM*DIM+id.x + ((id.y+1)%DIM)*DIM]-C[DIM*DIM+id.x + ((id.y-1+DIM)%DIM)*DIM])/(2.0*dx);
+
+    N[id.x + id.y*DIM] += (
+            sigma*(
+                N[DIM*DIM+id.x + id.y*DIM] * (delrN*delrC)
+                +C[DIM*DIM+id.x + id.y*DIM] * (delrN*delrN)
+                +laplacianN*N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+            )
+            +N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+        )*dt;
+    C[id.x + id.y*DIM] += (
+            laplacianC
+            -N[DIM*DIM+id.x + id.y*DIM]*C[DIM*DIM+id.x + id.y*DIM]
+        )*dt;
+    
+    // if(x*x + y*y > radius * radius) C[id.x + id.y*DIM] = 0;
 }
 
 [numthreads(8,8,1)]

@@ -32,8 +32,6 @@ float Random(uint seed)
 void Init(uint3 id : SV_DispatchThreadID)
 {
     sigma[id.x + id.y*DIM] = Hash((id.x + id.y * DIM)*offset + offset)%N;
-    // sigma[id.x + id.y*DIM] = (id.x/(DIM/sqrtN)) + (id.y/(DIM/sqrtN))*sqrtN;
-    area[sigma[id.x + id.y*DIM]]++;
 }
 
 [numthreads(8, 8, 1)]
@@ -62,38 +60,21 @@ void Step(uint3 id : SV_DispatchThreadID)
         +uint(sigma[id.x + id.y*DIM]!=sigma[ id.x + ((id.y-1+DIM)%DIM)*DIM])
     );
 
-    // float dH = 0;
-    if(s!=sigma[id.x + id.y*DIM])
-    {
-        dH += lambda*float(
-            (area[s] + 1 - A)*(area[s] + 1 - A)
-            +(area[sigma[id.x + id.y*DIM]] - 1 - A)*(area[sigma[id.x + id.y*DIM]] - 1 - A)
-            -(area[s] - A)*(area[s] - A)
-            -(area[sigma[id.x + id.y*DIM]] - A)*(area[sigma[id.x + id.y*DIM]] - A)
-        );
-    }
-
     float r = Random((id.x + id.y * DIM)*offset1 + offset1);
 
     if(T!=0)
     {
         if(exp(-dH/T)>=r)
         {
-            area[s]++;
-            area[sigma[id.x + id.y*DIM]]--;
             sigma[id.x + id.y*DIM] = s;
         }
     }
     else
     {
         if(dH<0){
-            area[s]++;
-            area[sigma[id.x + id.y*DIM]]--;
             sigma[id.x + id.y*DIM] = s;
         }
         if(dH==0 && r <= 0.5){
-            area[s]++;
-            area[sigma[id.x + id.y*DIM]]--;
             sigma[id.x + id.y*DIM] = s;
         }
     }

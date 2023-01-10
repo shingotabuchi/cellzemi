@@ -1,0 +1,127 @@
+#pragma kernel Init
+#pragma kernel Step
+#pragma kernel Plot
+
+RWTexture2D<float4> renderTexture;
+uint DIM;
+RWStructuredBuffer<float> A,B;
+RWStructuredBuffer<float> laplacianWeights;
+float feed,kill;
+float DA,DB,dx,dt;
+uint offsetA,offsetB;
+
+float Laplacian(RWStructuredBuffer<float> buffer, int x, int y)
+{
+    float laplacian = 0.0;
+    int deltax[] = {-1, 0, 1,-1, 0, 1,-1, 0, 1};
+    int deltay[] = { 1, 1, 1, 0, 0, 0,-1,-1,-1};
+    for (int i = 0; i < 9; i++)
+    {
+        laplacian += buffer[DIM*DIM + (x + deltax[i] + DIM)%DIM + ((y + deltay[i] + DIM)%DIM)*DIM] * laplacianWeights[i];
+    }
+    laplacian /= dx*dx;
+
+    return laplacian;
+}
+
+float LaplacianLeapFrog(RWStructuredBuffer<float> buffer, int x, int y)
+{
+    return (buffer[DIM*DIM+(x+2)%DIM + y*DIM] + buffer[DIM*DIM+(x-2+DIM)%DIM + y*DIM] +
+    buffer[DIM*DIM+x + ((y+2)%DIM)*DIM] + buffer[DIM*DIM+x + ((y-2+DIM)%DIM)*DIM]
+    -4.0 * buffer[DIM*DIM + x + y*DIM])/(4.0*dx*dx);    
+}
+
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+[numthreads(8, 8, 1)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+    // float a = Random((id.x + id.y * DIM)*offsetA + offsetA);
+    // float b = Random((id.x + id.y * DIM)*offsetB + offsetB);
+    float a = 1;
+    float b = 0;
+    int x = int(id.x)-int(DIM/2);
+    int y = int(id.y)-int(DIM/2);
+    int divident = 128;
+    if(x*x + y*y < int(DIM/divident) * int(DIM/divident))
+    {
+        b = 1;
+    }
+    A[id.x + id.y*DIM] = a;
+    B[id.x + id.y*DIM] = b;
+    A[DIM*DIM + id.x + id.y*DIM] = a;
+    B[DIM*DIM + id.x + id.y*DIM] = b;
+    float c = b/(a+b);
+    renderTexture[id.xy] = float4(c,c,c,1);
+    // renderTexture[id.xy] = float4(a,a,a,1);
+}
+
+[numthreads(8, 8, 1)]
+void Step(uint3 id : SV_DispatchThreadID)
+{
+    float a = A[DIM*DIM+id.x + id.y*DIM];
+    float b = B[DIM*DIM+id.x + id.y*DIM];
+    // float laplacianA = LaplacianLeapFrog(A,id.x,id.y);
+    // float laplacianB = LaplacianLeapFrog(B,id.x,id.y);
+    float laplacianA = Laplacian(A,id.x,id.y);
+    float laplacianB = Laplacian(B,id.x,id.y);
+
+    // float laplacianA =
+    // (A[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + A[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    // A[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + A[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    // -4.0 * A[DIM*DIM + id.x + id.y*DIM])/(4.0*dx*dx);    
+    // float laplacianB =
+    // (B[DIM*DIM+(id.x+2)%DIM + id.y*DIM] + B[DIM*DIM+(id.x-2+DIM)%DIM + id.y*DIM] +
+    // B[DIM*DIM+id.x + ((id.y+2)%DIM)*DIM] + B[DIM*DIM+id.x + ((id.y-2+DIM)%DIM)*DIM]
+    // -4.0 * B[DIM*DIM + id.x + id.y*DIM])/(4.0*dx*dx);  
+
+    // int deltax[] = {-1, 0, 1,-1, 0, 1,-1, 0, 1};
+    // int deltay[] = { 1, 1, 1, 0, 0, 0,-1,-1,-1};
+
+    // float laplacianA = 0.0;
+    // float laplacianB = 0.0;
+    
+    // for (int i = 0; i < 9; i++)
+    // {
+    //     laplacianA += A[DIM*DIM + (id.x + deltax[i] + DIM)%DIM + ((id.y + deltay[i] + DIM)%DIM)*DIM] * laplacianWeights[i];
+    // }
+    // laplacian /= dx*dx;
+
+    A[id.x + id.y*DIM] += (
+            DA * laplacianA
+            - a * b * b
+            + feed * (1 - a)
+        )*dt;
+    B[id.x + id.y*DIM] += (
+            DB * laplacianB
+            + a * b * b
+            - (kill + feed) * b
+        )*dt;
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    float a = A[id.x + id.y*DIM];
+    A[DIM*DIM + id.x + id.y*DIM] = a;
+    float b = B[id.x + id.y*DIM];
+    B[DIM*DIM + id.x + id.y*DIM] = b;
+    float c = b/(a+b);
+    renderTexture[id.xy] = float4(c,c,c,1);
+    // renderTexture[id.xy] = float4(a,a,a,1);
+}
+
