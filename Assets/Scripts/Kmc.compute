@@ -1,0 +1,149 @@
+#pragma kernel Step
+#pragma kernel StepParticle
+#pragma kernel Plot
+
+RWTexture2D<float4> renderTexture;
+int DIM;
+int offset;
+int offset1;
+int particleCount;
+float T;
+float mu;
+int plotMode;
+RWStructuredBuffer<int> lBuffer;
+RWStructuredBuffer<int> nBuffer;
+RWStructuredBuffer<int> nPosBuffer;
+
+static int2 directions[4] = {int2(1,0),int2(-1,0),int2(0,1),int2(0,-1)};
+
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+[numthreads(8, 8, 1)]
+void Step(uint3 id : SV_DispatchThreadID)
+{
+    int newL = Hash((id.x + id.y * DIM)*offset + offset)%2;
+    // int nearby[] = {
+    //     lBuffer[(id.x+1)%DIM + id.y*DIM],
+    //     lBuffer[(id.x-1+DIM)%DIM + id.y*DIM],
+    //     lBuffer[id.x + ((id.y+1)%DIM)*DIM],
+    //     lBuffer[id.x + ((id.y-1+DIM)%DIM)*DIM]
+    // };
+    // int s = nearby[Hash((id.x + id.y * DIM)*offset + offset)%4];
+    float dll = 
+    float(
+         uint(newL*lBuffer[(id.x+1)%DIM + id.y*DIM])
+        +uint(newL*lBuffer[(id.x-1+DIM)%DIM + id.y*DIM])
+        +uint(newL*lBuffer[id.x + ((id.y+1)%DIM)*DIM])
+        +uint(newL*lBuffer[id.x + ((id.y-1+DIM)%DIM)*DIM])
+    )
+    -
+    float(
+         uint(lBuffer[id.x + id.y*DIM]*lBuffer[ (id.x+1)%DIM + id.y*DIM])
+        +uint(lBuffer[id.x + id.y*DIM]*lBuffer[ (id.x-1+DIM)%DIM + id.y*DIM])
+        +uint(lBuffer[id.x + id.y*DIM]*lBuffer[ id.x + ((id.y+1)%DIM)*DIM])
+        +uint(lBuffer[id.x + id.y*DIM]*lBuffer[ id.x + ((id.y-1+DIM)%DIM)*DIM])
+    );
+
+    float dnl = 
+    float(
+         uint(newL*nBuffer[(id.x+1)%DIM + id.y*DIM])
+        +uint(newL*nBuffer[(id.x-1+DIM)%DIM + id.y*DIM])
+        +uint(newL*nBuffer[id.x + ((id.y+1)%DIM)*DIM])
+        +uint(newL*nBuffer[id.x + ((id.y-1+DIM)%DIM)*DIM])
+    )
+    -
+    float(
+         uint(lBuffer[id.x + id.y*DIM]*nBuffer[ (id.x+1)%DIM + id.y*DIM])
+        +uint(lBuffer[id.x + id.y*DIM]*nBuffer[ (id.x-1+DIM)%DIM + id.y*DIM])
+        +uint(lBuffer[id.x + id.y*DIM]*nBuffer[ id.x + ((id.y+1)%DIM)*DIM])
+        +uint(lBuffer[id.x + id.y*DIM]*nBuffer[ id.x + ((id.y-1+DIM)%DIM)*DIM])
+    );
+
+    float epsilonL = 2.0*T;
+    float epsilonNL = 1.5*epsilonL;
+
+    float dl = float(newL - lBuffer[id.x + id.y*DIM]);
+
+    float dH = -epsilonL*dll - epsilonNL*dnl - mu*epsilonL*dl;
+
+    float r = Random((id.x + id.y * DIM)*offset1 + offset1);
+
+    if(T!=0)
+    {
+        if(exp(-dH/T)>=r)
+        {
+            lBuffer[id.x + id.y*DIM] = newL;
+        }
+    }
+    else
+    {
+        if(dH<0){
+            lBuffer[id.x + id.y*DIM] = newL;
+        }
+        if(dH==0 && r <= 0.5){
+            lBuffer[id.x + id.y*DIM] = newL;
+        }
+    }
+}
+
+[numthreads(64, 1, 1)]
+void StepParticle(uint3 id : SV_DispatchThreadID)
+{
+    int2 randomDirection = directions[Hash((id.x)*offset + offset)%4];
+    int newX = (nPosBuffer[id.x*2 + 0] + randomDirection.x + DIM)%(uint)DIM;
+    int newY = (nPosBuffer[id.x*2 + 1] + randomDirection.y + DIM)%(uint)DIM;
+
+    // if(
+    //     nBuffer[newX + newY*DIM] == 1
+    //     ||nBuffer[(newX+1)%(uint)DIM + newY*DIM] == 1
+    //     ||nBuffer[newX + ((newY+1)%(uint)DIM)*DIM] == 1
+    //     ||nBuffer[(newX+1)%(uint)DIM + ((newY+1)%(uint)DIM)*DIM] == 1
+    // ) return;
+
+    if(
+        lBuffer[newX + newY*DIM] == 0
+        ||lBuffer[(newX+1)%(uint)DIM + newY*DIM] == 0
+        ||lBuffer[newX + ((newY+1)%(uint)DIM)*DIM] == 0
+        ||lBuffer[(newX+1)%(uint)DIM + ((newY+1)%(uint)DIM)*DIM] == 0
+    ) return;
+
+    nBuffer[nPosBuffer[id.x*2 + 0] + nPosBuffer[id.x*2 + 1]*DIM] = 0;
+    nBuffer[(nPosBuffer[id.x*2 + 0]+1)%(uint)DIM + nPosBuffer[id.x*2 + 1]*DIM] = 0;
+    nBuffer[nPosBuffer[id.x*2 + 0] + ((nPosBuffer[id.x*2 + 1]+1)%(uint)DIM)*DIM] = 0;
+    nBuffer[(nPosBuffer[id.x*2 + 0]+1)%(uint)DIM + ((nPosBuffer[id.x*2 + 1]+1)%(uint)DIM)*DIM] = 0;
+    nBuffer[newX + newY*DIM] = 1;
+    nBuffer[(newX+1)%(uint)DIM + newY*DIM] = 1;
+    nBuffer[newX + ((newY+1)%(uint)DIM)*DIM] = 1;
+    nBuffer[(newX+1)%(uint)DIM + ((newY+1)%(uint)DIM)*DIM] = 1;
+    nPosBuffer[id.x*2 + 0] = newX;
+    nPosBuffer[id.x*2 + 1] = newY;
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    float c = 1;
+    if(plotMode==0)
+    {
+        c = float(lBuffer[id.x + id.y*DIM]);
+    }
+    if(plotMode==1)
+    {
+        c = float(nBuffer[id.x + id.y*DIM]);
+    }
+    renderTexture[id.xy] = float4(c,c,c,1);
+}
