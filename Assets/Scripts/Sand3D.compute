@@ -1,0 +1,146 @@
+#pragma kernel Init
+#pragma kernel SpawnSand
+#pragma kernel Step
+#pragma kernel Plot
+
+struct SandParticle
+{
+    bool active;
+    int x;
+    int y;
+    int z;
+};
+
+RWTexture2D<float4> renderTexture;
+RWStructuredBuffer<int> particleTypeBuffer;
+RWStructuredBuffer<int> variableBuffer;
+RWStructuredBuffer<SandParticle> sandBuffer;
+int DIM;
+int DIM_Z;
+int rndSeed;
+int spawnX;
+int spawnY;
+int spawnZ;
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+int PosIndex(int x, int y, int z)
+{
+    return (x + DIM)%(uint)DIM + ((y + DIM)%(uint)DIM)*DIM + ((z + DIM_Z)%(uint)DIM_Z)*DIM*DIM;
+}
+
+[numthreads(64,1,1)]
+void Init (uint3 id : SV_DispatchThreadID)
+{
+    particleTypeBuffer[id.x] = 0;
+    sandBuffer[id.x].active = false;
+    if(id.x==0)variableBuffer[0] = 0;
+}
+
+[numthreads(1,1,1)]
+void SpawnSand (uint3 id : SV_DispatchThreadID)
+{
+    if(spawnY >= DIM) return;
+    
+    spawnX = (spawnX+DIM)%(uint)DIM;
+    spawnY = (spawnY+DIM)%(uint)DIM;
+    spawnZ = (spawnZ+DIM_Z)%(uint)DIM_Z;
+    
+    int index = PosIndex(spawnX,spawnY,spawnZ);
+    if(particleTypeBuffer[index] != 0) return;
+
+    sandBuffer[variableBuffer[0]].active = true;
+    sandBuffer[variableBuffer[0]].x = spawnX;
+    sandBuffer[variableBuffer[0]].y = spawnY;
+    sandBuffer[variableBuffer[0]].z = spawnZ;
+    variableBuffer[0]++;
+}
+
+[numthreads(64,1,1)]
+void Step (uint3 id : SV_DispatchThreadID)
+{
+    SandParticle sp = sandBuffer[id.x];
+    if(!sp.active) return;
+    int x = sp.x;
+    int y = sp.y;
+    int z = sp.z;
+    if (y==0) return;
+    int posIndex = PosIndex(x,y,z);
+    
+    int posDiffs[9][3] = 
+    {
+        { 0,-1, 0},
+        { 1,-1, 0},
+        {-1,-1, 0},
+        { 0,-1, 1},
+        { 0,-1,-1},
+        { 1,-1, 1},
+        { 1,-1,-1},
+        {-1,-1, 1},
+        {-1,-1,-1}
+    };
+    bool canMoveToPos[9];
+    int moveIndexes[9];
+    int canMovePosCount = 0;
+    int i;
+    for(i = 0; i < 9; i++)
+    {
+        int dx = posDiffs[i][0];
+        int dy = posDiffs[i][1];
+        int dz = posDiffs[i][2];
+        int index = PosIndex(x+dx,y+dy,z+dz);
+        moveIndexes[i] = index;
+        canMoveToPos[i] = (particleTypeBuffer[index]==0);
+        if(i!=0 && canMoveToPos[i]) canMovePosCount++;
+    }
+
+    if(canMoveToPos[0])
+    {
+        particleTypeBuffer[posIndex] = 0;
+        particleTypeBuffer[moveIndexes[0]] = 1;
+        sandBuffer[id.x].y--;
+        return;
+    }
+    int movePosIndex = Hash(rndSeed + id.x)%(uint)canMovePosCount;
+    int ind = 0;
+    for(i = 1; i < 9; i++)
+    {
+        if(ind == movePosIndex)
+        {
+            int dx = posDiffs[i][0];
+            int dy = posDiffs[i][1];
+            int dz = posDiffs[i][2];
+            particleTypeBuffer[posIndex] = 0;
+            particleTypeBuffer[moveIndexes[i]] = 1;
+            sandBuffer[id.x].x = (x+dx+DIM)%(uint)DIM;
+            sandBuffer[id.x].y = y+dy;
+            sandBuffer[id.x].z = (z+dz+DIM_Z)%(uint)DIM_Z;
+            return;
+        }
+        if(canMoveToPos[i]) ind++;
+    }
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    float c = 0;
+    for(int i = 0; i < DIM_Z; i++)
+    {
+        int index = id.x + id.y*DIM + i*DIM*DIM;
+        c = max(c,(float)particleTypeBuffer[index]);
+    }
+    renderTexture[id.xy] = float4(c,c,c,1);
+}

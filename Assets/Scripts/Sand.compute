@@ -1,0 +1,168 @@
+#pragma kernel Init
+#pragma kernel SpawnSand
+#pragma kernel Step
+#pragma kernel Plot
+
+struct SandParticle
+{
+    bool active;
+    int x;
+    int y;
+    int size;
+};
+
+RWTexture2D<float4> renderTexture;
+RWStructuredBuffer<int> particleTypeBuffer;
+RWStructuredBuffer<int> variableBuffer;
+RWStructuredBuffer<SandParticle> sandBuffer;
+int DIM;
+int rndSeed;
+int spawnX;
+int spawnY;
+int spawnSize;
+uint Hash(uint s)
+{
+    s ^= 2747636419u;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    s ^= s >> 16;
+    s *= 2654435769u;
+    return s;
+}
+float Random(uint seed)
+{
+    return float(Hash(seed)) / 4294967295.0; // 2^32-1
+}
+
+[numthreads(64,1,1)]
+void Init (uint3 id : SV_DispatchThreadID)
+{
+    particleTypeBuffer[id.x] = 0;
+    sandBuffer[id.x].active = false;
+    if(id.x==0)variableBuffer[0] = 0;
+}
+
+[numthreads(1,1,1)]
+void SpawnSand (uint3 id : SV_DispatchThreadID)
+{
+    if(variableBuffer[0] >= DIM*DIM) return;
+    if(spawnY + spawnSize - 1 >= DIM) return;
+    for(int i = 0; i < spawnSize; i++)
+    {
+        for(int j = 0; j < spawnSize; j++)
+        {
+            int index = (spawnX + i)%(uint)DIM + (spawnY + j)*DIM;
+            if(particleTypeBuffer[index] != 0) return;
+        }
+    }
+    sandBuffer[variableBuffer[0]].active = true;
+    sandBuffer[variableBuffer[0]].x = spawnX;
+    sandBuffer[variableBuffer[0]].y = spawnY;
+    sandBuffer[variableBuffer[0]].size = spawnSize;
+    variableBuffer[0]++;
+}
+
+[numthreads(64,1,1)]
+void Step (uint3 id : SV_DispatchThreadID)
+{
+    SandParticle sp = sandBuffer[id.x];
+    if(!sp.active) return;
+    int i;
+    int x = sp.x;
+    int y = sp.y;
+    if (y==0) return;
+    int posIndex = x + y*DIM;
+    bool YMinus = true;
+    bool YMinusXPlus = true;
+    bool YMinusXMinus = true;
+    for(i=0;i<sp.size;i++)
+    {
+        int YMinusIndex = (x+i)%(uint)DIM + (y-1)*DIM;
+        int YMinusXPlusIndex = (x+i+1)%(uint)DIM + (y-1)*DIM;
+        int YMinusXMinusIndex = (x+i-1+DIM)%(uint)DIM + (y-1)*DIM;
+
+        if(particleTypeBuffer[YMinusIndex]!=0)YMinus=false;
+        if(particleTypeBuffer[YMinusXPlusIndex]!=0)YMinusXPlus=false;
+        if(particleTypeBuffer[YMinusXMinusIndex]!=0)YMinusXMinus=false;
+
+        if(i==0) continue;
+
+        int XPlusEdge = (x+sp.size)%(uint)DIM + (y-1+i)*DIM;
+        int XMinusEdge = (x-1+DIM)%(uint)DIM + (y-1+i)*DIM;
+
+        if(particleTypeBuffer[XPlusEdge]!=0)YMinusXPlus=false;
+        if(particleTypeBuffer[XMinusEdge]!=0)YMinusXMinus=false;
+    }
+    if(YMinus)
+    {
+        for(i=0;i<sp.size;i++)
+        {
+            int YIndex = (x+i)%(uint)DIM + (y+sp.size-1)*DIM;
+            if(YIndex < DIM*DIM) particleTypeBuffer[YIndex] = 0;
+
+            int YMinusIndex = (x+i)%(uint)DIM + (y-1)*DIM;
+            particleTypeBuffer[YMinusIndex] = 1;
+        }
+        sandBuffer[id.x].y--;
+        return;
+    }
+    
+    if(YMinusXPlus && YMinusXMinus)
+    {
+        if(Random(rndSeed + id.x) < 0.5) YMinusXMinus = false;
+    }
+    
+    if(YMinusXPlus)
+    {
+        for(i=0;i<sp.size;i++)
+        {
+            int YIndex = (x+i)%(uint)DIM + (y+sp.size-1)*DIM;
+            if(YIndex < DIM*DIM) particleTypeBuffer[YIndex] = 0;
+
+            if(i >= 1)
+            {
+                int XEdge = (x)%(uint)DIM + (y+i-1)*DIM;
+                particleTypeBuffer[XEdge] = 0;
+
+                int XPlusEdge = (x+sp.size)%(uint)DIM + (y+i-1)*DIM;
+                particleTypeBuffer[XPlusEdge] = 1;
+            }
+
+            int YMinusXPlusIndex = (x+i+1)%(uint)DIM + (y-1)*DIM;
+            particleTypeBuffer[YMinusXPlusIndex] = 1;
+        }
+        sandBuffer[id.x].x++;
+        sandBuffer[id.x].y--;
+    }
+    else if(YMinusXMinus)
+    {
+        for(i=0;i<sp.size;i++)
+        {
+            int YIndex = (x+i)%(uint)DIM + (y+sp.size-1)*DIM;
+            if(YIndex < DIM*DIM) particleTypeBuffer[YIndex] = 0;
+
+            if(i >= 1)
+            {
+                int XEdge = (x+sp.size-1)%(uint)DIM + (y+i-1)*DIM;
+                particleTypeBuffer[XEdge] = 0;
+
+                int XMinusEdge = (x-1+DIM)%(uint)DIM + (y-1+i)*DIM;
+                particleTypeBuffer[XMinusEdge] = 1;
+            }
+
+            int YMinusXMinusIndex = (x+i-1+DIM)%(uint)DIM + (y-1)*DIM;
+            particleTypeBuffer[YMinusXMinusIndex] = 1;
+        }
+        sandBuffer[id.x].x--;
+        sandBuffer[id.x].y--;
+    }
+}
+
+[numthreads(8,8,1)]
+void Plot (uint3 id : SV_DispatchThreadID)
+{
+    int index = id.x + id.y*DIM;
+    float c = (float)particleTypeBuffer[index];
+    renderTexture[id.xy] = float4(c,c,c,1);
+}
